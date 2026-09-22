@@ -17,10 +17,11 @@ class SudokuApp {
     
     this.selectedCell = null; // { r, c }
     this.isNotesMode = false;
-    this.isZenMode = false;
+    this.isPracticeMode = false;
     this.mistakes = 0;
     this.maxMistakes = 3;
     this.timerSeconds = 0;
+    this.timerStartTime = null;
     this.timerInterval = null;
     this.isPaused = false;
     this.isGameOver = false;
@@ -48,7 +49,7 @@ class SudokuApp {
     this.mistakesEl = document.getElementById('mistakes-display');
     this.difficultySelect = document.getElementById('difficulty-select');
     this.notesBtn = document.getElementById('btn-notes');
-    this.zenToggle = document.getElementById('zen-toggle');
+    this.practiceToggle = document.getElementById('practice-toggle');
     this.soundToggle = document.getElementById('sound-toggle');
     this.themeToggle = document.getElementById('theme-toggle');
     this.hintModal = document.getElementById('hint-modal');
@@ -87,9 +88,9 @@ class SudokuApp {
       this.newGame();
     });
 
-    // Zen Mode toggle
-    this.zenToggle.addEventListener('change', (e) => {
-      this.isZenMode = e.target.checked;
+    // Practice Mode toggle
+    this.practiceToggle.addEventListener('change', (e) => {
+      this.isPracticeMode = e.target.checked;
       this.updateMistakesDisplay();
     });
 
@@ -151,10 +152,11 @@ class SudokuApp {
         this.mistakes = state.mistakes || 0;
         this.timerSeconds = state.timerSeconds || 0;
         this.notesGrid = state.notesGrid.map(row => row.map(cellNotes => new Set(cellNotes)));
-        this.isZenMode = state.isZenMode || false;
-        this.zenToggle.checked = this.isZenMode;
+        this.isPracticeMode = state.isPracticeMode || false;
+        this.practiceToggle.checked = this.isPracticeMode;
         
         this.renderBoard();
+        this.timerEl.innerText = this.formatTime(this.timerSeconds);
         this.startTimer();
         this.updateMistakesDisplay();
         this.updateRemainingNumbers();
@@ -174,6 +176,12 @@ class SudokuApp {
     this.isWon = false;
     this.mistakes = 0;
     this.timerSeconds = 0;
+    this.timerStartTime = null;
+    this.timerEl.innerText = '00:00';
+    this.pauseOverlay.classList.add('hidden');
+    const pauseBtn = document.getElementById('btn-pause');
+    if (pauseBtn) pauseBtn.innerText = '⏸️';
+
     this.history = [];
     this.redoStack = [];
     this.selectedCell = null;
@@ -194,15 +202,24 @@ class SudokuApp {
 
   // Restart current puzzle from initial clues
   restartGame() {
+    this.stopTimer();
     this.currentGrid = this.initialGrid.map(r => [...r]);
     this.notesGrid = Array.from({ length: 9 }, () => Array.from({ length: 9 }, () => new Set()));
     this.mistakes = 0;
     this.timerSeconds = 0;
+    this.timerStartTime = null;
+    this.timerEl.innerText = '00:00';
     this.history = [];
     this.redoStack = [];
     this.isGameOver = false;
     this.isWon = false;
+    this.isPaused = false;
+    this.pauseOverlay.classList.add('hidden');
+    const pauseBtn = document.getElementById('btn-pause');
+    if (pauseBtn) pauseBtn.innerText = '⏸️';
+
     this.renderBoard();
+    this.startTimer();
     this.updateMistakesDisplay();
     this.updateRemainingNumbers();
     this.saveState();
@@ -371,7 +388,7 @@ class SudokuApp {
       this.sound.playPlace();
     } else {
       this.sound.playError();
-      if (!this.isZenMode) {
+      if (!this.isPracticeMode) {
         this.mistakes++;
         this.updateMistakesDisplay();
         if (this.mistakes >= this.maxMistakes) {
@@ -589,22 +606,25 @@ class SudokuApp {
   }
 
   updateMistakesDisplay() {
-    if (this.isZenMode) {
-      this.mistakesEl.innerHTML = `<span>Zen Mode 🧘</span>`;
+    if (this.isPracticeMode) {
+      this.mistakesEl.innerHTML = `<span style="color: var(--accent); font-weight: 700;">Practice 🎯</span>`;
     } else {
       this.mistakesEl.innerHTML = `Mistakes: <span class="mistake-count">${this.mistakes}/${this.maxMistakes}</span>`;
     }
   }
 
-  // Timer Management
+  // Timer Management (Timestamp-based, perfectly accurate & tab-safe)
   startTimer() {
     this.stopTimer();
+    this.timerStartTime = Date.now() - (this.timerSeconds * 1000);
+    this.timerEl.innerText = this.formatTime(this.timerSeconds);
+
     this.timerInterval = setInterval(() => {
       if (!this.isPaused && !this.isGameOver && !this.isWon) {
-        this.timerSeconds++;
+        this.timerSeconds = Math.floor((Date.now() - this.timerStartTime) / 1000);
         this.timerEl.innerText = this.formatTime(this.timerSeconds);
       }
-    }, 1000);
+    }, 250);
   }
 
   stopTimer() {
@@ -618,7 +638,18 @@ class SudokuApp {
     if (this.isGameOver || this.isWon) return;
     this.isPaused = !this.isPaused;
     this.pauseOverlay.classList.toggle('hidden', !this.isPaused);
-    document.getElementById('btn-pause').innerText = this.isPaused ? '▶️ Resume' : '⏸️ Pause';
+    
+    const pauseBtn = document.getElementById('btn-pause');
+    if (pauseBtn) {
+      pauseBtn.innerText = this.isPaused ? '▶️' : '⏸️';
+      pauseBtn.setAttribute('title', this.isPaused ? 'Resume Game' : 'Pause Game');
+    }
+
+    if (this.isPaused) {
+      this.stopTimer();
+    } else {
+      this.startTimer();
+    }
   }
 
   formatTime(secs) {
@@ -756,7 +787,7 @@ class SudokuApp {
       solutionGrid: this.solutionGrid,
       mistakes: this.mistakes,
       timerSeconds: this.timerSeconds,
-      isZenMode: this.isZenMode,
+      isPracticeMode: this.isPracticeMode,
       notesGrid: this.notesGrid.map(row => row.map(cellSet => Array.from(cellSet)))
     };
     localStorage.setItem('sudoku_pro_state', JSON.stringify(state));
