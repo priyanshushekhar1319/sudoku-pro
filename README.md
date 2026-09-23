@@ -7,7 +7,8 @@ Developed by **Priyanshu Shekhar**.
 ---
 
 ## Live Demo
-- **Web Application**: https://priyanshushekhar1319.github.io/sudoku-pro/
+- **Render Live Site**: https://sudoku-pro-2eux.onrender.com
+- **GitHub Pages**: https://priyanshushekhar1319.github.io/sudoku-pro/
 - **GitHub Repository**: https://github.com/priyanshushekhar1319/sudoku-pro
 
 ---
