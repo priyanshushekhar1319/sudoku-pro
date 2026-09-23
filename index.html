@@ -2,10 +2,13 @@
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Sudoku Pro — Minimalist Logic Game & Solver</title>
   <meta name="description" content="A modern, high-performance Sudoku game featuring unique puzzle generation, intelligent hint system, pencil notes, and backtracking visualizer.">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=2.2">
 </head>
 <body>
 
@@ -20,6 +23,10 @@
         <span>Sudoku</span><span class="brand-badge">PRO</span>
       </div>
       <div class="header-actions">
+        <button id="user-profile-btn" class="user-pill-btn" onclick="openPlayerAuth()" aria-label="Player Profile and Login" title="Player Profile & Login">
+          <span class="user-avatar" id="header-user-avatar">👤</span>
+          <span class="user-name" id="header-user-name">Login</span>
+        </button>
         <label class="hud-item" style="font-size: 0.82rem; cursor: pointer; font-weight: 600;" title="Practice Mode: Unlimited mistakes, no game over">
           <input type="checkbox" id="practice-toggle" style="margin-right: 5px; accent-color: var(--accent);"> Practice 🎯
         </label>
@@ -109,7 +116,10 @@
 
       <!-- Secondary Game Actions -->
       <div class="secondary-actions">
-        <button id="btn-auto-notes" class="pill-btn" title="Auto-fill candidate notes across all empty cells">⚡ Auto Notes</button>
+        <div style="display: flex; gap: 8px;">
+          <button id="btn-auto-notes" class="pill-btn" title="Toggle or fill candidate notes across all empty cells">⚡ Auto Notes</button>
+          <button id="btn-clear-notes" class="pill-btn" title="Remove and clear all candidate notes across the entire board">🧹 Clear Notes</button>
+        </div>
         <div style="display: flex; gap: 8px;">
           <button id="btn-restart" class="pill-btn" title="Restart current puzzle">Restart</button>
           <button id="btn-new-game" class="pill-btn primary" title="Generate brand new puzzle">New Game</button>
@@ -180,10 +190,203 @@
     </div>
   </div>
 
+  <!-- AUTHENTICATION MODAL (Login & Sign Up) -->
+  <div id="auth-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title">
+    <div class="modal-card auth-card">
+      <div class="auth-header">
+        <div class="auth-logo">🧩</div>
+        <h2 id="auth-modal-title" style="font-family: 'Outfit', sans-serif;">Player Account</h2>
+        <p class="auth-subtitle">Save your game progress, best times, and win streaks!</p>
+      </div>
+
+      <!-- Auth Tabs: Login vs Register -->
+      <div class="auth-tabs" role="tablist">
+        <button id="tab-login" class="auth-tab active" role="tab" aria-selected="true">Sign In</button>
+        <button id="tab-register" class="auth-tab" role="tab" aria-selected="false">Create Account</button>
+      </div>
+
+      <!-- Error / Alert Banner -->
+      <div id="auth-error-msg" class="auth-alert hidden"></div>
+
+      <!-- Sign In Form -->
+      <form id="login-form" class="auth-form" onsubmit="event.preventDefault(); submitPlayerLogin();">
+        <div class="form-group">
+          <label for="login-username">Player Name / Username</label>
+          <input type="text" id="login-username" class="auth-input" placeholder="Enter your name (e.g. Priyanshu)" autocomplete="username" required>
+        </div>
+        <div class="form-group">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <label for="login-password">Password (Optional)</label>
+            <button type="button" id="toggle-login-pwd" class="text-link-btn" style="font-size: 0.75rem; text-decoration: none;">👁️ Show</button>
+          </div>
+          <input type="password" id="login-password" class="auth-input" placeholder="Optional - or leave blank" autocomplete="current-password">
+        </div>
+        <div class="auth-hint-text">
+          💡 Just enter your name and hit Login to start tracking your scores immediately!
+        </div>
+        <button type="submit" id="btn-submit-login" class="modal-btn primary auth-submit-btn">Login / Start ▶️</button>
+        <div style="text-align: center; font-size: 0.82rem; color: var(--text-muted); margin-top: 4px;">
+          Want to pick an avatar? <button type="button" id="switch-to-register-btn" class="text-link-btn" style="font-size: 0.82rem;">Create Account</button>
+        </div>
+        <!-- Saved Accounts on this Device -->
+        <div id="saved-accounts-wrap" class="saved-accounts-wrap hidden">
+          <span class="saved-accounts-label">Saved Accounts on this device:</span>
+          <div id="saved-accounts-list" class="saved-accounts-list"></div>
+        </div>
+      </form>
+
+      <!-- Sign Up Form (Hidden by default) -->
+      <form id="register-form" class="auth-form hidden">
+        <div class="form-group">
+          <label>Choose Your Avatar</label>
+          <div class="avatar-picker" id="avatar-picker">
+            <button type="button" class="avatar-option selected" data-avatar="🦊">🦊</button>
+            <button type="button" class="avatar-option" data-avatar="⚡">⚡</button>
+            <button type="button" class="avatar-option" data-avatar="🧙">🧙</button>
+            <button type="button" class="avatar-option" data-avatar="🚀">🚀</button>
+            <button type="button" class="avatar-option" data-avatar="🐱">🐱</button>
+            <button type="button" class="avatar-option" data-avatar="🎮">🎮</button>
+            <button type="button" class="avatar-option" data-avatar="🧩">🧩</button>
+            <button type="button" class="avatar-option" data-avatar="👑">👑</button>
+            <button type="button" class="avatar-option" data-avatar="🐯">🐯</button>
+            <button type="button" class="avatar-option" data-avatar="🔥">🔥</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="reg-username">Choose Username</label>
+          <input type="text" id="reg-username" class="auth-input" placeholder="2-15 characters" autocomplete="username" required>
+        </div>
+        <div class="form-group">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <label for="reg-password">Choose Password</label>
+            <button type="button" id="toggle-reg-pwd" class="text-link-btn" style="font-size: 0.75rem; text-decoration: none;">👁️ Show</button>
+          </div>
+          <input type="password" id="reg-password" class="auth-input" placeholder="At least 3 characters" autocomplete="new-password" required>
+        </div>
+        <button type="submit" id="btn-submit-register" class="modal-btn primary auth-submit-btn">Create Profile & Start ✨</button>
+        <div style="text-align: center; font-size: 0.82rem; color: var(--text-muted); margin-top: 4px;">
+          Already have an account? <button type="button" id="switch-to-login-btn" class="text-link-btn" style="font-size: 0.82rem;">Sign In</button>
+        </div>
+      </form>
+
+      <!-- Guest Option & Close -->
+      <div class="auth-footer">
+        <button type="button" id="btn-continue-guest" class="text-link-btn">Continue as Guest 👤</button>
+        <button type="button" id="btn-close-auth" class="modal-btn secondary" style="width: auto; padding: 6px 16px;">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PLAYER PROFILE & STATS MODAL -->
+  <div id="profile-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="profile-modal-title">
+    <div class="modal-card profile-card">
+      <div class="profile-header">
+        <div class="profile-avatar-large" id="profile-display-avatar">🦊</div>
+        <div class="profile-meta">
+          <h2 id="profile-modal-title" class="profile-username">Player</h2>
+          <span class="profile-badge" id="profile-status-badge">Registered Player</span>
+        </div>
+      </div>
+
+      <!-- Quick Summary Stats Grid -->
+      <div class="profile-stats-grid">
+        <div class="stat-box">
+          <div class="stat-label">GAMES PLAYED</div>
+          <div class="stat-value" id="profile-games-played">0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">PUZZLES SOLVED</div>
+          <div class="stat-value highlight" id="profile-puzzles-solved">0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">WIN RATE</div>
+          <div class="stat-value" id="profile-win-rate">0%</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">WIN STREAK</div>
+          <div class="stat-value" id="profile-streak">🔥 0</div>
+        </div>
+      </div>
+
+      <!-- Best Times per Difficulty -->
+      <div class="best-times-section">
+        <div class="best-times-title">🏆 Personal Best Times</div>
+        <div class="best-times-list">
+          <div class="time-row">
+            <span class="difficulty-tag easy">EASY</span>
+            <span class="time-val" id="best-time-easy">--:--</span>
+          </div>
+          <div class="time-row">
+            <span class="difficulty-tag medium">MEDIUM</span>
+            <span class="time-val" id="best-time-medium">--:--</span>
+          </div>
+          <div class="time-row">
+            <span class="difficulty-tag hard">HARD</span>
+            <span class="time-val" id="best-time-hard">--:--</span>
+          </div>
+          <div class="time-row">
+            <span class="difficulty-tag expert">EXPERT</span>
+            <span class="time-val" id="best-time-expert">--:--</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="profile-actions">
+        <button id="btn-logout" class="modal-btn secondary">Log Out / Switch Account</button>
+        <button id="btn-close-profile" class="modal-btn primary">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fail-safe Global Click Handlers -->
+  <script>
+    function openPlayerAuth() {
+      if (window.app && window.authManager && window.authManager.isLoggedIn()) {
+        window.app.openProfileModal();
+      } else if (window.app && typeof window.app.openAuthModal === 'function') {
+        window.app.openAuthModal('login');
+      } else {
+        var m = document.getElementById('auth-modal');
+        if (m) m.classList.remove('hidden');
+      }
+    }
+
+    function submitPlayerLogin() {
+      if (window.app && typeof window.app.handleLoginDirect === 'function') {
+        window.app.handleLoginDirect();
+        return;
+      }
+      var uInput = document.getElementById('login-username');
+      var pInput = document.getElementById('login-password');
+      var u = uInput ? uInput.value.trim() : '';
+      var p = pInput ? pInput.value : '';
+      if (!u) {
+        var err = document.getElementById('auth-error-msg');
+        if (err) { err.innerText = 'Please enter your name/username.'; err.classList.remove('hidden'); }
+        return;
+      }
+      if (window.authManager) {
+        var res = window.authManager.login(u, p);
+        if (res.success) {
+          var m = document.getElementById('auth-modal');
+          if (m) m.classList.add('hidden');
+          if (window.app && typeof window.app.updateAuthUI === 'function') {
+            window.app.updateAuthUI();
+          }
+        } else {
+          var err = document.getElementById('auth-error-msg');
+          if (err) { err.innerText = res.message; err.classList.remove('hidden'); }
+        }
+      }
+    }
+  </script>
+
   <!-- Scripts -->
-  <script src="js/sudoku-engine.js"></script>
-  <script src="js/audio.js"></script>
-  <script src="js/visualizer.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/sudoku-engine.js?v=2.2"></script>
+  <script src="js/audio.js?v=2.2"></script>
+  <script src="js/visualizer.js?v=2.2"></script>
+  <script src="js/auth.js?v=2.2"></script>
+  <script src="js/app.js?v=2.2"></script>
 </body>
 </html>

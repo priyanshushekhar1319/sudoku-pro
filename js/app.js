@@ -39,6 +39,8 @@ class SudokuApp {
 
     this.initDOM();
     this.bindEvents();
+    this.bindAuthEvents();
+    this.updateAuthUI();
     this.loadSavedGameOrNew();
   }
 
@@ -55,6 +57,13 @@ class SudokuApp {
     this.hintModal = document.getElementById('hint-modal');
     this.victoryModal = document.getElementById('victory-modal');
     this.pauseOverlay = document.getElementById('pause-overlay');
+
+    // Auth & Profile DOM
+    this.userProfileBtn = document.getElementById('user-profile-btn');
+    this.headerUserAvatar = document.getElementById('header-user-avatar');
+    this.headerUserName = document.getElementById('header-user-name');
+    this.authModal = document.getElementById('auth-modal');
+    this.profileModal = document.getElementById('profile-modal');
   }
 
   // Bind UI, keyboard, and window events
@@ -76,7 +85,8 @@ class SudokuApp {
     document.getElementById('btn-erase').addEventListener('click', () => this.eraseCurrentCell());
     this.notesBtn.addEventListener('click', () => this.toggleNotesMode());
     document.getElementById('btn-hint').addEventListener('click', () => this.requestHint());
-    document.getElementById('btn-auto-notes').addEventListener('click', () => this.autoFillNotes());
+    document.getElementById('btn-auto-notes')?.addEventListener('click', () => this.toggleAutoNotes());
+    document.getElementById('btn-clear-notes')?.addEventListener('click', () => this.clearAllNotes());
     document.getElementById('btn-new-game').addEventListener('click', () => this.newGame());
     document.getElementById('btn-restart').addEventListener('click', () => this.restartGame());
     document.getElementById('btn-pause').addEventListener('click', () => this.togglePause());
@@ -177,6 +187,10 @@ class SudokuApp {
     this.mistakes = 0;
     this.timerSeconds = 0;
     this.timerStartTime = null;
+
+    if (window.authManager) {
+      window.authManager.recordGameStart(this.difficulty);
+    }
     this.timerEl.innerText = '00:00';
     this.pauseOverlay.classList.add('hidden');
     const pauseBtn = document.getElementById('btn-pause');
@@ -283,6 +297,7 @@ class SudokuApp {
     }
 
     this.applyHighlights();
+    this.updateAutoNotesButtonText();
   }
 
   // Cell Selection & Highlight Logic
@@ -449,10 +464,73 @@ class SudokuApp {
     }
   }
 
-  // Auto-Fill all valid candidate notes across empty cells
+  // Check if any cell currently has candidate notes
+  hasAnyNotes() {
+    for (let r = 0; r < 9; r++) {
+      for (let c = 0; c < 9; c++) {
+        if (this.notesGrid[r][c] && this.notesGrid[r][c].size > 0) return true;
+      }
+    }
+    return false;
+  }
+
+  // Update Auto Notes button text and title dynamically
+  updateAutoNotesButtonText() {
+    const btn = document.getElementById('btn-auto-notes');
+    if (!btn) return;
+    if (this.hasAnyNotes()) {
+      btn.innerText = '🧹 Clear Notes';
+      btn.title = 'Click to clear all candidate notes across the board';
+      btn.classList.add('active');
+    } else {
+      btn.innerText = '⚡ Auto Notes';
+      btn.title = 'Auto-fill candidate notes across all empty cells';
+      btn.classList.remove('active');
+    }
+  }
+
+  // Toggle Auto Notes (fills if empty, clears if notes are active)
+  toggleAutoNotes() {
+    if (this.isPaused || this.isGameOver) return;
+    if (this.hasAnyNotes()) {
+      this.clearAllNotes();
+    } else {
+      this.autoFillNotes();
+    }
+  }
+
+  // Clear all notes across the board with Undo support
+  clearAllNotes() {
+    if (this.isPaused || this.isGameOver) return;
+    if (!this.hasAnyNotes()) return;
+
+    const prevNotesSnapshot = this.notesGrid.map(row => row.map(cell => new Set(cell)));
+    this.recordMove({
+      type: 'bulk_notes',
+      notesSnapshot: prevNotesSnapshot
+    });
+
+    for (let r = 0; r < 9; r++) {
+      for (let c = 0; c < 9; c++) {
+        this.notesGrid[r][c].clear();
+      }
+    }
+
+    this.sound.playTap();
+    this.renderBoard();
+    this.saveState();
+  }
+
+  // Auto-Fill all valid candidate notes across empty cells with Undo support
   autoFillNotes() {
     if (this.isPaused || this.isGameOver) return;
     const candidates = this.engine.getCandidates(this.currentGrid);
+    const prevNotesSnapshot = this.notesGrid.map(row => row.map(cell => new Set(cell)));
+
+    this.recordMove({
+      type: 'bulk_notes',
+      notesSnapshot: prevNotesSnapshot
+    });
 
     for (let r = 0; r < 9; r++) {
       for (let c = 0; c < 9; c++) {
@@ -505,6 +583,20 @@ class SudokuApp {
   undo() {
     if (this.history.length === 0 || this.isPaused || this.isGameOver) return;
     const move = this.history.pop();
+
+    if (move.type === 'bulk_notes') {
+      const currentNotesSnapshot = this.notesGrid.map(row => row.map(cell => new Set(cell)));
+      this.redoStack.push({
+        type: 'bulk_notes',
+        notesSnapshot: currentNotesSnapshot
+      });
+      this.notesGrid = move.notesSnapshot.map(row => row.map(cell => new Set(cell)));
+      this.sound.playTap();
+      this.renderBoard();
+      this.saveState();
+      return;
+    }
+
     this.redoStack.push({
       r: move.r,
       c: move.c,
@@ -526,6 +618,20 @@ class SudokuApp {
   redo() {
     if (this.redoStack.length === 0 || this.isPaused || this.isGameOver) return;
     const move = this.redoStack.pop();
+
+    if (move.type === 'bulk_notes') {
+      const currentNotesSnapshot = this.notesGrid.map(row => row.map(cell => new Set(cell)));
+      this.history.push({
+        type: 'bulk_notes',
+        notesSnapshot: currentNotesSnapshot
+      });
+      this.notesGrid = move.notesSnapshot.map(row => row.map(cell => new Set(cell)));
+      this.sound.playTap();
+      this.renderBoard();
+      this.saveState();
+      return;
+    }
+
     this.history.push({
       r: move.r,
       c: move.c,
@@ -564,10 +670,26 @@ class SudokuApp {
     this.stopTimer();
     this.sound.playWin();
 
+    // Record win in auth profile
+    let winResult = { isNewBest: false };
+    if (window.authManager) {
+      winResult = window.authManager.recordGameWin(this.difficulty, this.timerSeconds);
+      this.updateAuthUI();
+    }
+
     // Show Victory Modal with stats
     document.getElementById('victory-time').innerText = this.formatTime(this.timerSeconds);
     document.getElementById('victory-difficulty').innerText = this.difficulty.toUpperCase();
     document.getElementById('victory-mistakes').innerText = this.mistakes;
+
+    const victorySub = document.querySelector('#victory-modal p');
+    if (victorySub) {
+      const user = window.authManager ? window.authManager.getCurrentUser() : null;
+      const name = user && !user.isGuest ? user.username : 'Player';
+      victorySub.innerText = winResult.isNewBest
+        ? `🔥 Incredible, ${name}! New Personal Best for ${this.difficulty.toUpperCase()} difficulty!`
+        : `Outstanding deduction, ${name}! You completed the board!`;
+    }
 
     this.victoryModal.classList.remove('hidden');
     this.triggerConfetti();
@@ -578,6 +700,10 @@ class SudokuApp {
   triggerGameOver() {
     this.isGameOver = true;
     this.stopTimer();
+    if (window.authManager) {
+      window.authManager.recordGameLoss();
+      this.updateAuthUI();
+    }
     alert('Game Over! You made 3 mistakes. Click "Restart" or "New Game" to try again.');
   }
 
@@ -842,6 +968,303 @@ class SudokuApp {
       }
     }
     render();
+  }
+
+  // ==========================================================================
+  // Authentication & Player Profile UI Controllers
+  // ==========================================================================
+
+  updateAuthUI() {
+    if (!window.authManager) return;
+    const user = window.authManager.getCurrentUser();
+    if (this.headerUserAvatar) this.headerUserAvatar.innerText = user.avatar || '👤';
+    if (this.headerUserName) this.headerUserName.innerText = user.isGuest ? 'Login' : user.username;
+    if (this.userProfileBtn) {
+      this.userProfileBtn.title = user.isGuest ? 'Sign In or Create Account' : `${user.username}'s Profile & Stats`;
+    }
+  }
+
+  openAuthModal(defaultTab = 'login') {
+    if (!this.authModal) return;
+    this.authModal.classList.remove('hidden');
+    this.switchAuthTab(defaultTab);
+    this.renderSavedAccounts();
+  }
+
+  renderSavedAccounts() {
+    const wrap = document.getElementById('saved-accounts-wrap');
+    const list = document.getElementById('saved-accounts-list');
+    if (!wrap || !list || !window.authManager) return;
+
+    const users = window.authManager.getRegisteredUsersList();
+    if (users.length === 0) {
+      wrap.classList.add('hidden');
+      return;
+    }
+
+    wrap.classList.remove('hidden');
+    list.innerHTML = '';
+    users.forEach(u => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'saved-account-chip';
+      chip.innerHTML = `<span>${u.avatar}</span><strong>${u.username}</strong>`;
+      chip.title = `Click to autofill "${u.username}"`;
+      chip.addEventListener('click', () => {
+        const uInput = document.getElementById('login-username');
+        const pInput = document.getElementById('login-password');
+        if (uInput) uInput.value = u.username;
+        if (pInput) pInput.focus();
+      });
+      list.appendChild(chip);
+    });
+  }
+
+  closeAuthModal() {
+    if (!this.authModal) return;
+    this.authModal.classList.add('hidden');
+    this.clearAuthError();
+  }
+
+  switchAuthTab(tab) {
+    const tabLogin = document.getElementById('tab-login');
+    const tabReg = document.getElementById('tab-register');
+    const formLogin = document.getElementById('login-form');
+    const formReg = document.getElementById('register-form');
+    this.clearAuthError();
+
+    if (tab === 'login') {
+      tabLogin?.classList.add('active');
+      tabLogin?.setAttribute('aria-selected', 'true');
+      tabReg?.classList.remove('active');
+      tabReg?.setAttribute('aria-selected', 'false');
+      formLogin?.classList.remove('hidden');
+      formReg?.classList.add('hidden');
+      setTimeout(() => document.getElementById('login-username')?.focus(), 50);
+    } else {
+      tabReg?.classList.add('active');
+      tabReg?.setAttribute('aria-selected', 'true');
+      tabLogin?.classList.remove('active');
+      tabLogin?.setAttribute('aria-selected', 'false');
+      formReg?.classList.remove('hidden');
+      formLogin?.classList.add('hidden');
+      setTimeout(() => document.getElementById('reg-username')?.focus(), 50);
+    }
+  }
+
+  showAuthError(msg) {
+    const el = document.getElementById('auth-error-msg');
+    if (el) {
+      el.innerText = msg;
+      el.classList.remove('hidden');
+    }
+  }
+
+  clearAuthError() {
+    const el = document.getElementById('auth-error-msg');
+    if (el) {
+      el.innerText = '';
+      el.classList.add('hidden');
+    }
+  }
+
+  openProfileModal() {
+    if (!this.profileModal || !window.authManager) return;
+    const user = window.authManager.getCurrentUser();
+    
+    const avatarEl = document.getElementById('profile-display-avatar');
+    const titleEl = document.getElementById('profile-modal-title');
+    const badgeEl = document.getElementById('profile-status-badge');
+    
+    if (avatarEl) avatarEl.innerText = user.avatar || '👤';
+    if (titleEl) titleEl.innerText = user.username || 'Guest';
+    if (badgeEl) badgeEl.innerText = user.isGuest ? 'Guest Mode' : 'Registered Player';
+
+    const stats = user.stats || window.authManager.createEmptyStats();
+    const gamesPlayedEl = document.getElementById('profile-games-played');
+    const puzzlesSolvedEl = document.getElementById('profile-puzzles-solved');
+    const winRateEl = document.getElementById('profile-win-rate');
+    const streakEl = document.getElementById('profile-streak');
+
+    if (gamesPlayedEl) gamesPlayedEl.innerText = stats.totalGames || 0;
+    if (puzzlesSolvedEl) puzzlesSolvedEl.innerText = stats.totalWins || 0;
+    
+    const winRate = stats.totalGames > 0 ? Math.round(((stats.totalWins || 0) / stats.totalGames) * 100) : 0;
+    if (winRateEl) winRateEl.innerText = `${winRate}%`;
+    if (streakEl) streakEl.innerText = `🔥 ${stats.currentStreak || 0} (Best: ${stats.bestStreak || 0})`;
+
+    const formatDiffTime = (sec) => sec ? this.formatTime(sec) : '--:--';
+    const diffs = stats.difficulties || {};
+    
+    const easyEl = document.getElementById('best-time-easy');
+    const medEl = document.getElementById('best-time-medium');
+    const hardEl = document.getElementById('best-time-hard');
+    const expertEl = document.getElementById('best-time-expert');
+
+    if (easyEl) easyEl.innerText = formatDiffTime(diffs.easy?.bestTime);
+    if (medEl) medEl.innerText = formatDiffTime(diffs.medium?.bestTime);
+    if (hardEl) hardEl.innerText = formatDiffTime(diffs.hard?.bestTime);
+    if (expertEl) expertEl.innerText = formatDiffTime(diffs.expert?.bestTime);
+
+    this.profileModal.classList.remove('hidden');
+  }
+
+  closeProfileModal() {
+    if (!this.profileModal) return;
+    this.profileModal.classList.add('hidden');
+  }
+
+  bindAuthEvents() {
+    // Header Profile button
+    this.userProfileBtn?.addEventListener('click', () => {
+      if (window.authManager && window.authManager.isLoggedIn()) {
+        this.openProfileModal();
+      } else {
+        this.openAuthModal('login');
+      }
+    });
+
+    // Auth Tabs
+    document.getElementById('tab-login')?.addEventListener('click', () => this.switchAuthTab('login'));
+    document.getElementById('tab-register')?.addEventListener('click', () => this.switchAuthTab('register'));
+
+    // Switch buttons inside forms
+    document.getElementById('switch-to-register-btn')?.addEventListener('click', () => {
+      const u = document.getElementById('login-username')?.value;
+      const p = document.getElementById('login-password')?.value;
+      this.switchAuthTab('register');
+      if (u) {
+        const regUser = document.getElementById('reg-username');
+        if (regUser) regUser.value = u;
+      }
+      if (p) {
+        const regPwd = document.getElementById('reg-password');
+        if (regPwd) regPwd.value = p;
+      }
+    });
+
+    document.getElementById('switch-to-login-btn')?.addEventListener('click', () => {
+      this.switchAuthTab('login');
+    });
+
+    // Password visibility toggles
+    const setupPwdToggle = (btnId, inputId) => {
+      const btn = document.getElementById(btnId);
+      const input = document.getElementById(inputId);
+      if (!btn || !input) return;
+      btn.addEventListener('click', () => {
+        const isPwd = input.type === 'password';
+        input.type = isPwd ? 'text' : 'password';
+        btn.innerText = isPwd ? '🙈 Hide' : '👁️ Show';
+      });
+    };
+    setupPwdToggle('toggle-login-pwd', 'login-password');
+    setupPwdToggle('toggle-reg-pwd', 'reg-password');
+
+    // Avatar Picker selection
+    let selectedAvatar = '🦊';
+    document.querySelectorAll('.avatar-option').forEach(opt => {
+      opt.addEventListener('click', () => {
+        document.querySelectorAll('.avatar-option').forEach(o => o.classList.remove('selected'));
+        opt.classList.add('selected');
+        selectedAvatar = opt.dataset.avatar || '🦊';
+      });
+    });
+
+    // Unified Login Handler
+    const handleLogin = (e) => {
+      if (e) e.preventDefault();
+      const u = document.getElementById('login-username')?.value || '';
+      const p = document.getElementById('login-password')?.value || '';
+      if (!u.trim()) {
+        this.showAuthError('Please enter your player name.');
+        this.sound?.playError();
+        return;
+      }
+      const res = window.authManager.login(u, p);
+      if (res.success) {
+        this.closeAuthModal();
+        this.updateAuthUI();
+        this.sound?.playWin();
+        const pInput = document.getElementById('login-password');
+        if (pInput) pInput.value = '';
+      } else {
+        this.showAuthError(res.message);
+        this.sound?.playError();
+      }
+    };
+
+    this.handleLoginDirect = handleLogin;
+    document.getElementById('login-form')?.addEventListener('submit', handleLogin);
+    document.getElementById('btn-submit-login')?.addEventListener('click', handleLogin);
+
+    // Unified Register Handler
+    const handleRegister = (e) => {
+      if (e) e.preventDefault();
+      const u = document.getElementById('reg-username')?.value || '';
+      const p = document.getElementById('reg-password')?.value || '';
+      if (!u.trim()) {
+        this.showAuthError('Please choose a username.');
+        this.sound?.playError();
+        return;
+      }
+      if (!p || p.length < 3) {
+        this.showAuthError('Password must be at least 3 characters.');
+        this.sound?.playError();
+        return;
+      }
+      const res = window.authManager.register(u, p, selectedAvatar);
+      if (res.success) {
+        this.closeAuthModal();
+        this.updateAuthUI();
+        this.sound?.playWin();
+        const uInput = document.getElementById('reg-username');
+        const pInput = document.getElementById('reg-password');
+        if (uInput) uInput.value = '';
+        if (pInput) pInput.value = '';
+      } else {
+        this.showAuthError(res.message);
+        this.sound?.playError();
+      }
+    };
+
+    document.getElementById('register-form')?.addEventListener('submit', handleRegister);
+    document.getElementById('btn-submit-register')?.addEventListener('click', handleRegister);
+
+    // Continue as Guest
+    document.getElementById('btn-continue-guest')?.addEventListener('click', () => {
+      window.authManager.logout();
+      this.closeAuthModal();
+      this.updateAuthUI();
+      this.sound?.playTap();
+    });
+
+    // Close Auth Modal
+    document.getElementById('btn-close-auth')?.addEventListener('click', () => {
+      this.closeAuthModal();
+    });
+
+    // Close Profile Modal
+    document.getElementById('btn-close-profile')?.addEventListener('click', () => {
+      this.closeProfileModal();
+    });
+
+    // Logout from Profile Modal
+    document.getElementById('btn-logout')?.addEventListener('click', () => {
+      window.authManager.logout();
+      this.closeProfileModal();
+      this.updateAuthUI();
+      this.openAuthModal('login');
+      this.sound?.playTap();
+    });
+
+    // Close on overlay backdrop click
+    this.authModal?.addEventListener('click', (e) => {
+      if (e.target === this.authModal) this.closeAuthModal();
+    });
+    this.profileModal?.addEventListener('click', (e) => {
+      if (e.target === this.profileModal) this.closeProfileModal();
+    });
   }
 }
 
