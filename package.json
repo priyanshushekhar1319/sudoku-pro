@@ -1,0 +1,12 @@
+{
+  "name": "sudoku-pro",
+  "version": "1.0.0",
+  "description": "Sudoku Pro web application",
+  "scripts": {
+    "start": "npx serve -s . -l 10000",
+    "build": "echo 'Build complete'"
+  },
+  "dependencies": {
+    "serve": "^14.2.4"
+  }
+}
